@@ -1,4 +1,4 @@
-# Task 3 — Secure Coding Review
+# Secure Coding Review
 
 ## 1. Introduction
 

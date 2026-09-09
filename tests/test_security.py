@@ -45,6 +45,35 @@ def client(tmp_path, monkeypatch):
         yield client
 
 
+def get_csrf_token(client):
+
+    response = client.get("/")
+
+    assert response.status_code == 200
+
+    html = response.data.decode()
+
+    marker = 'name="csrf_token"'
+
+    start = html.find(marker)
+
+    assert start != -1
+
+    value_marker = 'value="'
+
+    value_start = html.find(
+        value_marker,
+        start
+    ) + len(value_marker)
+
+    value_end = html.find(
+        '"',
+        value_start
+    )
+
+    return html[value_start:value_end]
+
+
 def test_home_page(client):
 
     response = client.get("/")
@@ -54,23 +83,31 @@ def test_home_page(client):
 
 def test_normal_login(client):
 
+    # Get a valid CSRF token
+    csrf_token = get_csrf_token(client)
+
     # Create a test user
     register_response = client.post(
         "/register",
         data={
             "username": "pytest_user",
-            "password": "Pytest@123"
+            "password": "Pytest@123",
+            "csrf_token": csrf_token
         }
     )
 
     assert register_response.status_code == 200
+
+    # Get a fresh CSRF token for the login request
+    csrf_token = get_csrf_token(client)
 
     # Test login with the newly created user
     response = client.post(
         "/login",
         data={
             "username": "pytest_user",
-            "password": "Pytest@123"
+            "password": "Pytest@123",
+            "csrf_token": csrf_token
         }
     )
 
@@ -80,24 +117,31 @@ def test_normal_login(client):
 
 def test_sql_injection_is_rejected(client):
 
+    csrf_token = get_csrf_token(client)
+
     response = client.post(
         "/login",
         data={
             "username": "' OR '1'='1",
-            "password": "anything"
+            "password": "anything",
+            "csrf_token": csrf_token
         }
     )
 
+    assert response.status_code == 200
     assert b"Invalid username or password" in response.data
 
 
 def test_empty_login_is_rejected(client):
 
+    csrf_token = get_csrf_token(client)
+
     response = client.post(
         "/login",
         data={
             "username": "",
-            "password": ""
+            "password": "",
+            "csrf_token": csrf_token
         }
     )
 
@@ -150,3 +194,36 @@ def test_unknown_page_returns_404(client):
     response = client.get("/this-page-does-not-exist")
 
     assert response.status_code == 404
+
+
+def test_dashboard_xss_is_escaped(client):
+
+    with client.session_transaction() as session:
+        session["username"] = "<script>alert('XSS')</script>"
+
+    response = client.get("/dashboard")
+
+    assert response.status_code == 200
+
+    assert b"<script>alert('XSS')</script>" not in response.data
+
+    assert b"&lt;script&gt;alert(&#39;XSS&#39;)&lt;/script&gt;" in response.data
+
+def test_csrf_protection(client):
+
+    response = client.post(
+        "/login",
+        data={
+            "username": "testuser",
+            "password": "Test@12345"
+        }
+    )
+
+    assert response.status_code == 400
+    assert b"CSRF token is missing" in response.data
+
+def test_session_cookie_security(client):
+
+    assert app.config["SESSION_COOKIE_HTTPONLY"] is True
+    assert app.config["SESSION_COOKIE_SAMESITE"] == "Lax"
+    assert app.config["SESSION_COOKIE_SECURE"] is False

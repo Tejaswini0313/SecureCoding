@@ -1,4 +1,5 @@
 from flask import Flask, request, render_template_string, session, redirect
+from flask_wtf.csrf import CSRFProtect
 import sqlite3
 from time import time
 from dotenv import load_dotenv
@@ -16,6 +17,12 @@ load_dotenv()
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY")
+
+csrf = CSRFProtect(app)
+
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["SESSION_COOKIE_SECURE"] = False
 
 import os
 
@@ -61,7 +68,7 @@ def create_database():
 @app.route("/")
 def home():
 
-    return """
+    page = """
     <h1>Secure Coding Review</h1>
 
     <hr>
@@ -69,6 +76,10 @@ def home():
     <h2>Create Account</h2>
 
     <form action="/register" method="POST">
+
+        <input type="hidden"
+               name="csrf_token"
+               value="{{ csrf_token() }}">
 
         Username:
         <input type="text" name="username" maxlength="50" required>
@@ -87,33 +98,37 @@ def home():
     </form>
 
     <h2>Secure Login</h2>
-    
-        <form action="/login" method="POST">
-    
-            Username:
-            <input type="text" name="username">
-    
-            <br><br>
-    
-            Password:
-            <input type="password" name="password">
-    
-            <br><br>
-    
-            <button type="submit">
-                Login
-            </button>
-    
-        </form>
-    
-        <hr>
+
+    <form action="/login" method="POST">
+
+        <input type="hidden"
+               name="csrf_token"
+               value="{{ csrf_token() }}">
+
+        Username:
+        <input type="text" name="username" maxlength="50" required>
+
+        <br><br>
+
+        Password:
+        <input type="password" name="password" maxlength="128" required>
+
+        <br><br>
+
+        <button type="submit">
+            Login
+        </button>
+
+    </form>
+
+    <hr>
 
     <h2>Comment Section</h2>
 
     <form action="/comment" method="GET">
 
         Comment:
-        <input type="text" name="comment">
+        <input type="text" name="comment" maxlength="500">
 
         <button type="submit">
             Submit Comment
@@ -121,6 +136,8 @@ def home():
 
     </form>
     """
+
+    return render_template_string(page)
 
 @app.route("/register", methods=["POST"])
 def register():
@@ -260,15 +277,20 @@ def dashboard():
 
     username = session["username"]
 
-    return f"""
+    page = """
     <h1>Secure Dashboard</h1>
 
-    <h2>Welcome, {username}!</h2>
+    <h2>Welcome, {{ username }}!</h2>
 
     <p>You are successfully logged in.</p>
 
     <a href="/logout">Logout</a>
     """
+
+    return render_template_string(
+        page,
+        username=username
+    )
 
 @app.route("/logout")
 def logout():
